@@ -144,7 +144,7 @@ def childKnowLoop(known_objects, child):##Super hacky, eyuk.
         known_objects.append(i)
         childKnowLoop(known_objects, i)
     
-def childProcess(objects, known_objects, known_names, texture_path, using_anim, armDict, armMemDict, genDart, indent = 0):
+def childProcess(objects, known_objects, known_names, texture_path, using_anim, armDict, armMemDict, genDart, knownInstanceDict, indent = 0):
     newliner = "\n" + (" "* indent)
     egg_string = "\n"
     global foundTextures
@@ -199,6 +199,7 @@ def childProcess(objects, known_objects, known_names, texture_path, using_anim, 
 
             ##################################Possibly not nessicary
             name = obj.name.replace(" ", "_")
+            '''
             nameinc = 0
             nameTest = name
             while nameTest in known_names:
@@ -207,15 +208,28 @@ def childProcess(objects, known_objects, known_names, texture_path, using_anim, 
             if nameinc > 0:
                 name = nameTest
             known_names.append(name)
+            '''
             ###################################
             
 
             egg_string += (newliner + "<Instance> %s {" % name + newliner)#Todo:: Use group where it's more appropriate.... likely best to do group creation on a per-object level
 
+            dname = obj.data.name.replace(" ", "_")
+            #Detect mesh instance
+            if obj.type == "MESH" and obj.data.users > 1:
+                if dname in knownInstanceDict:
+                    egg_string += " <Ref> {" + knownInstanceDict[dname][0] + "} " + newliner 
+
+
             #Apply Transforms
             is_transformed = False
             transform_string =" <Transform> {"
-            mat = obj.matrix_local#Hopefully the manual isn't lying and this really is parent-relative
+
+            if obj.data.users > 1 and dname in knownInstanceDict:
+                mat = obj.matrix_world.inverted() @ bpy.data.objects[knownInstanceDict[dname][1]].matrix_world
+            else:
+                mat = obj.matrix_local#Hopefully the manual isn't lying and this really is parent-relative
+            
             transdata = obj.scale#scale cannot be determined from matrix alone if negative
             if (transdata[0] != 0) or (transdata[1] != 0) or (transdata[2] != 0):
                 transform_string += newliner + '  <Scale> { ' + str(transdata[0]) + ' ' + str(transdata[1]) + ' ' + str(transdata[2]) + ' }'
@@ -256,42 +270,49 @@ def childProcess(objects, known_objects, known_names, texture_path, using_anim, 
             child_addition = ''
             children = obj.children
             if len(children) > 0:
-                child_addition = childProcess(children, known_objects, known_names, texture_path, using_anim, armDict, armMemDict, genDart, indent= indent + 1)
+                child_addition = childProcess(children, known_objects, known_names, texture_path, using_anim, armDict, armMemDict, genDart, knownInstanceDict, indent= indent + 1)
             if obj.type == "MESH":
-                thisMesh = obj.to_mesh(preserve_all_data_layers=True, depsgraph= bpy.context.evaluated_depsgraph_get())
-                useTex = False
-                #Add texture references, and calculate the slot data for materials
-                picnum = len(thisMesh.materials)
-                if picnum != 0:
-                    matList = thisMesh.materials.values()
-                    for i in range(picnum):
-                        mat = matList[i]
-                        if mat is None: continue
-                        img_name = None
-                        tex_name = None
-                        tree = mat.node_tree
-                        if not tree is None:
-                            for x in tree.nodes:
-                                if x.bl_static_type=='TEX_IMAGE':##THIS IS APPARENTLY DEPRICATED; and for some f*****g reason the only alternative I can find is as well. good luck, future me!
-                                    img_name = x.image.name
-                                    tex_name = img_name.replace(' ', '_')
-                                    useTex = True
-                                    mats.append(tex_name)
-                                    if x.image.name not in foundTextures:
-                                        global_string += "\n<Texture> " + tex_name + " { " + texture_path + img_name + " }"
-                                        foundTextures.append(img_name)
-                                    #TODO:: add alpha support
-                                    break
-                        del tree
+                if obj.data.name.replace(" ", "_") in knownInstanceDict:
+                    egg_string += newliner + "}"
+                    continue
+                else:
+                    if obj.data.users > 1: knownInstanceDict[obj.data.name.replace(" ", "_")] = (name, obj.name)
 
-                    egg_string += newliner
+                    thisMesh = obj.to_mesh(preserve_all_data_layers=True, depsgraph= bpy.context.evaluated_depsgraph_get())
+                    useTex = False
+                    #Add texture references, and calculate the slot data for materials
+                    picnum = len(thisMesh.materials)
+                    if picnum != 0:
+                        matList = thisMesh.materials.values()
+                        for i in range(picnum):
+                            mat = matList[i]
+                            if mat is None: continue
+                            img_name = None
+                            tex_name = None
+                            tree = mat.node_tree
+                            if not tree is None:
+                                for x in tree.nodes:
+                                    if x.bl_static_type=='TEX_IMAGE':##THIS IS APPARENTLY DEPRICATED; and for some f*****g reason the only alternative I can find is as well. good luck, future me!
+                                        img_name = x.image.name
+                                        tex_name = img_name.replace(' ', '_')
+                                        useTex = True
+                                        mats.append(tex_name)
+                                        if x.image.name not in foundTextures:
+                                            global_string += "\n<Texture> " + tex_name + " { " + texture_path + img_name + " }"
+                                            foundTextures.append(img_name)
+                                        #TODO:: add alpha support
+                                        break
+                            del tree
+
+                        egg_string += newliner
 
                     
                     
-                #Process the mesh, and apply texture stuff in necissary 
-                new_addition = process_mesh(thisMesh, name, mats, useTex, boneNames, vgroups, anim_check, boneDict, indent + 1)
-                egg_string += new_addition
-                obj.to_mesh_clear()
+                    #Process the mesh, and apply texture stuff in necissary
+
+                    new_addition = process_mesh(thisMesh, name, mats, useTex, boneNames, vgroups, anim_check, boneDict, indent + 1)
+                    egg_string += new_addition
+                    obj.to_mesh_clear()
                 
             egg_string += child_addition
                 
@@ -342,14 +363,14 @@ def write_egg_string(texture_path, export_options, using_anim, restPose, skip_UU
                     known_objects.append(obj.parent)#Hack to stop weirdness if we've selected an object but not it's parent.
 
 
-    egg_string += childProcess(obs, known_objects, known_names, texture_path, using_anim, armDict, armMemDict, False)#This should be happening after mesh definition.
+    egg_string += childProcess(obs, known_objects, known_names, texture_path, using_anim, armDict, armMemDict, False, {})#This should be happening after mesh definition.
 
     ##Generate group data to hand to armString
     armMems = {}
     #print(armMemDict)
     if using_anim:
         for arm in bpy.data.armatures:
-            armMems[arm.name] = childProcess(armMemDict[arm.name], [], known_names, texture_path, True, armDict, armMemDict, True, indent = 1)
+            armMems[arm.name] = childProcess(armMemDict[arm.name], [], known_names, texture_path, True, armDict, armMemDict, True, {}, indent = 1)
         armString = omuAnims.gen_anim_egg_string(armDict, bpy.data.armatures, armMems, collapse_nodes)
     
         egg_string += armString

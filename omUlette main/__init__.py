@@ -3,7 +3,7 @@ bl_info = {
     "name": "omUlete",
     "author": "Jackson \"Lifeland\" S.",
     "version": (0, 988),
-    "blender": (3, 5, 0),
+    "blender": (5, 0, 0),
     "description": "",
     "warning": "",
     "location": "File > Export",

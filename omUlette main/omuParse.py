@@ -214,7 +214,7 @@ def childProcess(objects, known_objects, known_names, texture_path, using_anim, 
 
             egg_string += (newliner + "<Instance> %s {" % name + newliner)#Todo:: Use group where it's more appropriate.... likely best to do group creation on a per-object level
 
-            dname = obj.data.name.replace(" ", "_")
+            dname = obj.data.name.replace(" ", "_") if obj.type == "MESH" else ""
             #Detect mesh instance
             if obj.type == "MESH" and obj.data.users > 1:
                 if dname in knownInstanceDict:
@@ -225,7 +225,7 @@ def childProcess(objects, known_objects, known_names, texture_path, using_anim, 
             is_transformed = False
             transform_string =" <Transform> {"
 
-            if obj.data.users > 1 and dname in knownInstanceDict:
+            if obj.type == "MESH" and obj.data.users > 1 and dname in knownInstanceDict:
                 mat = obj.matrix_world.inverted() @ bpy.data.objects[knownInstanceDict[dname][1]].matrix_world
             else:
                 mat = obj.matrix_local#Hopefully the manual isn't lying and this really is parent-relative
